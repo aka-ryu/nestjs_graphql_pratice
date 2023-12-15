@@ -4,6 +4,12 @@ import { Auth } from './entities/auth.entity';
 import { SignUpInput } from './dto/signup-input';
 import { UpdateAuthInput } from './dto/update-auth.input';
 import { SignResponse } from './dto/sign-response';
+import { SignInInput } from './dto/signin-input';
+import { LogoutResponse } from './dto/logout-response';
+import { Public } from './decorators/public.decorator';
+import { NewTokenResponse } from './dto/newtoken-response';
+import { CurrentUser } from './decorators/currentUser.decorator';
+import { CurrentUserId } from './decorators/currentUserId.decorator';
 
 @Resolver(() => Auth)
 export class AuthResolver {
@@ -14,9 +20,15 @@ export class AuthResolver {
     return this.authService.signup(signUpInput);
   }
 
-  @Query(() => [Auth], { name: 'auth' })
-  findAll() {
-    return this.authService.findAll();
+  @Public()
+  @Mutation(() => SignResponse)
+  signin(@Args('signInInput') signInInput: SignInInput) {
+    return this.authService.signin(signInInput);
+  }
+
+  @Mutation(() => LogoutResponse)
+  logout(@Args('userId', { type: () => Int }) userId: number) {
+    return this.authService.logout(userId);
   }
 
   @Query(() => Auth, { name: 'auth' })
@@ -32,5 +44,19 @@ export class AuthResolver {
   @Mutation(() => Auth)
   removeAuth(@Args('id', { type: () => Int }) id: number) {
     return this.authService.remove(id);
+  }
+
+  @Query(() => String)
+  hello() {
+    return 'hello';
+  }
+
+  @Public()
+  @Mutation(() => NewTokenResponse)
+  getNewTokens(
+    @CurrentUserId() userId: number,
+    @CurrentUser('refreshToken') refreshToken: string,
+  ) {
+    return this.authService.getNewTokens(userId, refreshToken);
   }
 }

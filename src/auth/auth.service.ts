@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { SignUpInput } from './dto/signup-input';
 import { UpdateAuthInput } from './dto/update-auth.input';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon from 'argon2';
+import { SignInInput } from './dto/signin-input';
+import { Query } from '@nestjs/graphql';
 
 @Injectable()
 export class AuthService {
@@ -29,12 +31,28 @@ export class AuthService {
     );
 
     await this.updateRefreshToken(user.id, refreshToken);
-
     return { accessToken, refreshToken, user };
   }
 
-  findAll() {
-    return `This action returns all auth`;
+  async signin(signInInput: SignInInput) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: signInInput.email },
+    });
+    if (!user) {
+      throw new ForbiddenException('Access denied');
+    }
+    const doPasswordsMatch = await argon.verify(
+      user.hashedPassword,
+      signInInput.password,
+    );
+    if (!doPasswordsMatch) {
+      throw new ForbiddenException('Access denied');
+    }
+    const { accessToken, refreshToken } = await this.createToken(
+      user.id,
+      user.email,
+    );
+    return { accessToken, refreshToken, user };
   }
 
   findOne(id: number) {
@@ -56,8 +74,8 @@ export class AuthService {
         email,
       },
       {
-        expiresIn: '10s',
-        secret: this.configService.get('ACCESS_TOKEN_SECRET'),
+        expiresIn: '10m',
+        secret: this.configService.get('TOKEN_SECRET'),
       },
     );
 
@@ -69,7 +87,7 @@ export class AuthService {
       },
       {
         expiresIn: '7d',
-        secret: this.configService.get('ACCESS_TOKEN_SECRET'),
+        secret: this.configService.get('TOKEN_SECRET'),
       },
     );
     return { accessToken, refreshToken };
@@ -81,5 +99,40 @@ export class AuthService {
       where: { id: userId },
       data: { hashedRefreshToken },
     });
+  }
+
+  async logout(userId: number) {
+    await this.prisma.user.updateMany({
+      where: { id: userId, hashedRefreshToken: { not: null } },
+      data: { hashedRefreshToken: null },
+    });
+
+    return { loggedOut: true };
+  }
+
+  async getNewTokens(userId: number, rt: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const doRefreshTokensMatch = await argon.verify(
+      user.hashedRefreshToken,
+      rt,
+    );
+
+    if (!doRefreshTokensMatch) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const { accessToken, refreshToken } = await this.createToken(
+      user.id,
+      user.email,
+    );
+
+    return { accessToken, refreshToken, user };
   }
 }
